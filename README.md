@@ -31,16 +31,61 @@ GEMINI_API_KEY=your_gemini_api_key_here
 VEO_API_KEY=your_veo_api_key_here
 ```
 
-### 3. Chạy MongoDB với Docker
+### 3. Chạy với Docker (Khuyến nghị)
+
+Cách đơn giản nhất là chạy tất cả services với Docker Compose:
 
 ```bash
 docker-compose up -d
 ```
 
-MongoDB sẽ chạy trên port 27017 với:
+Lệnh này sẽ khởi động:
+- **MongoDB** trên port 27017
+- **Redis** trên port 6379
+- **Django Web** trên port 8000
+- **Celery Worker** (xử lý video generation)
+- **Celery Beat** (cho scheduled tasks)
+
+**Truy cập ứng dụng tại:** http://localhost:8000
+
+**Xem logs:**
+```bash
+# Tất cả logs
+docker-compose logs -f
+
+# Chỉ Celery worker
+docker-compose logs -f celery-worker
+
+# Chỉ web server
+docker-compose logs -f web
+```
+
+**Dừng services:**
+```bash
+docker-compose down
+```
+
+**Rebuild khi có thay đổi:**
+```bash
+docker-compose up -d --build
+```
+
+### 3b. Chạy local (không Docker)
+
+Nếu bạn muốn chạy local thay vì Docker:
+
+#### 3b.1. Chạy MongoDB và Redis với Docker
+
+```bash
+docker-compose up -d mongodb redis
+```
+
+**MongoDB** sẽ chạy trên port 27017 với:
 - Username: `admin`
 - Password: `admin123`
 - Database: `agentvideo`
+
+**Redis** sẽ chạy trên port 6379 (dùng cho Celery và caching)
 
 Bạn có thể thay đổi trong file `.env`:
 ```
@@ -61,20 +106,36 @@ Nếu có lỗi authentication, hãy đảm bảo:
 2. Đợi vài giây để MongoDB khởi động hoàn toàn
 3. Kiểm tra logs: `docker-compose logs mongodb`
 
-### 4. Chạy migrations
+#### 3b.2. Chạy migrations
 
 ```bash
 python manage.py makemigrations
 python manage.py migrate
 ```
 
-### 5. Tạo superuser (optional)
+#### 3b.3. Tạo superuser (optional)
 
 ```bash
 python manage.py createsuperuser
 ```
 
-### 6. Chạy server
+#### 3b.4. Chạy Celery Worker (bắt buộc cho video generation)
+
+Video generation chạy async với Celery. Bạn cần chạy Celery worker trong một terminal riêng:
+
+**Windows (PowerShell):**
+```powershell
+celery -A agentvideo worker --loglevel=info --pool=solo
+```
+
+**Linux/Mac:**
+```bash
+celery -A agentvideo worker --loglevel=info
+```
+
+Xem file `CELERY_SETUP.md` để biết thêm chi tiết.
+
+#### 3b.5. Chạy Django server
 
 ```bash
 python manage.py runserver
@@ -110,19 +171,46 @@ app/
 
 ## Docker Commands
 
-### Start MongoDB
+### Start all services
 ```bash
 docker-compose up -d
 ```
 
-### Stop MongoDB
+### Start specific services
+```bash
+# Chỉ MongoDB và Redis
+docker-compose up -d mongodb redis
+
+# Chỉ Celery worker
+docker-compose up -d celery-worker
+```
+
+### Stop all services
 ```bash
 docker-compose down
 ```
 
-### View MongoDB logs
+### View logs
 ```bash
+# Tất cả logs
+docker-compose logs -f
+
+# MongoDB logs
 docker-compose logs -f mongodb
+
+# Redis logs
+docker-compose logs -f redis
+
+# Celery worker logs
+docker-compose logs -f celery-worker
+
+# Web server logs
+docker-compose logs -f web
+```
+
+### Rebuild containers
+```bash
+docker-compose up -d --build
 ```
 
 ### Access MongoDB shell
@@ -130,10 +218,30 @@ docker-compose logs -f mongodb
 docker exec -it agentvideo-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin
 ```
 
+### Access Redis CLI
+```bash
+docker exec -it agentvideo-redis redis-cli
+```
+
+### Restart a service
+```bash
+docker-compose restart celery-worker
+```
+
 ## Lưu ý
 
 - Veo API sử dụng Google Genai SDK với model `veo-3.1-fast-generate-preview`.
 - Gemini model mặc định là `gemini-1.5-flash`. Có thể thay đổi qua environment variable `GEMINI_MODEL`.
 - File uploads được lưu trong thư mục `media/` (tự động tạo khi cần).
-- Operation objects được lưu trong memory cache. Trong production, nên sử dụng Redis hoặc Celery để handle background tasks tốt hơn.
+- **Video generation chạy async với Celery** - đảm bảo Celery worker đang chạy trước khi generate videos.
+- **Redis được dùng cho caching và Celery broker** - đảm bảo Redis container đang chạy.
+- Operation metadata được lưu trong Redis cache (thay vì in-memory).
 - MongoDB data được lưu trong Docker volume `mongodb_data`.
+- Redis data được lưu trong Docker volume `redis_data`.
+
+## Celery và Redis
+
+Xem file `CELERY_SETUP.md` để biết chi tiết về:
+- Cách chạy Celery worker
+- Cấu hình Redis
+- Monitoring và troubleshooting

@@ -1,19 +1,20 @@
 import os
 import json
+import logging
 import pandas as pd
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
+from django.core.cache import cache
 # Use MongoDB models instead of Django ORM models
 from .mongodb_models import Project, DataFile, PromptTemplate, VideoGeneration
 from .services import gemini_service, veo_service
+from .tasks import batch_generate_videos, generate_single_video, check_video_status_task
 import re
 
-# Simple in-memory cache for Veo operations
-# In production, use Redis or similar
-_veo_operations_cache = {}
+logger = logging.getLogger(__name__)
 
 
 def index(request):
@@ -262,144 +263,114 @@ def step3_videos(request, project_id):
 @csrf_exempt
 @require_http_methods(["POST"])
 def api_start_video_generation(request, project_id):
-    """API endpoint: Start video generation for all rows"""
+    """API endpoint: Start video generation for all rows using Celery"""
     from bson import ObjectId
     from mongoengine import DoesNotExist
     
     try:
         project = Project.objects.get(id=ObjectId(project_id))
-    except (DoesNotExist, Exception):
+    except (DoesNotExist, Exception) as e:
+        logger.error(f"Project not found: {project_id}, error: {str(e)}")
         return JsonResponse({'error': 'Project not found'}, status=404)
     
     try:
         data_file = DataFile.objects.get(project=project)
-    except (DoesNotExist, Exception):
+    except (DoesNotExist, Exception) as e:
+        logger.error(f"Data file not found for project {project_id}, error: {str(e)}")
         return JsonResponse({'error': 'Data file not found'}, status=404)
     
     try:
         prompt_template = PromptTemplate.objects.get(project=project)
-    except (DoesNotExist, Exception):
+    except (DoesNotExist, Exception) as e:
+        logger.error(f"Prompt template not found for project {project_id}, error: {str(e)}")
         return JsonResponse({'error': 'Prompt template not found'}, status=404)
     
+    # Validate prompt template is not empty
+    if not prompt_template.template or not prompt_template.template.strip():
+        return JsonResponse({'error': 'Prompt template is empty. Please save a prompt template first.'}, status=400)
+    
     try:
-        # Read the data file with original column names preserved
-        file_path = os.path.join(settings.MEDIA_ROOT, data_file.file_path)
-        if data_file.file_type == 'csv':
-            # Read CSV with original column names, handle encoding
-            df = pd.read_csv(file_path, encoding='utf-8-sig')
-        else:
-            # Read Excel with original column names
-            df = pd.read_excel(file_path, engine='openpyxl')
+        # Queue Celery task for async batch processing
+        task = batch_generate_videos.delay(str(project.id))
         
-        # Update project status
-        project.status = 'generating'
-        project.save()
-        
-        # Create VideoGeneration objects for each row
-        created_videos = []
-        
-        for index, row in df.iterrows():
-            row_data = row.to_dict()
-            
-            # Fill template with row data
-            # Note: row_data keys should match original column names from file
-            filled_prompt = prompt_template.template
-            for key, value in row_data.items():
-                # Use original column name as placeholder
-                placeholder = f"{{{{{key}}}}}"
-                filled_prompt = filled_prompt.replace(placeholder, str(value))
-            
-            # Create VideoGeneration record
-            video_gen = VideoGeneration(
-                project=project,
-                row_index=int(index),
-                row_data=row_data,
-                prompt_used=filled_prompt,
-                status='pending'
-            )
-            video_gen.save()
-            
-            created_videos.append(str(video_gen.id))
-        
-        # Start generating videos asynchronously (in production, use Celery)
-        # For now, we'll trigger them one by one
-        for video_id in created_videos:
-            try:
-                from bson import ObjectId
-                video_gen = VideoGeneration.objects.get(id=ObjectId(video_id))
-                video_gen.status = 'processing'
-                video_gen.save()
-                
-                # Call Veo API
-                result = veo_service.generate_video(video_gen.prompt_used)
-                operation = result.get('operation')
-                operation_name = result.get('operation_name')
-                
-                # Store operation in cache
-                if operation:
-                    _veo_operations_cache[video_id] = operation
-                    video_gen.veo_job_id = operation_name or str(video_id)
-                    video_gen.save()
-                
-            except Exception as e:
-                from bson import ObjectId
-                try:
-                    video_gen = VideoGeneration.objects.get(id=ObjectId(video_id))
-                    video_gen.status = 'failed'
-                    video_gen.error_message = str(e)
-                    video_gen.save()
-                except:
-                    pass
+        logger.info(f"Queued batch video generation task {task.id} for project {project_id}")
         
         return JsonResponse({
             'success': True,
-            'message': f'Started generating {len(created_videos)} videos',
-            'video_count': len(created_videos)
+            'message': 'Video generation started. Videos will be processed asynchronously.',
+            'task_id': task.id,
+            'project_id': project_id
         })
     
     except Exception as e:
-        project.status = 'editing_prompt'
-        project.save()
-        return JsonResponse({'error': str(e)}, status=500)
+        logger.error(f"Error starting video generation for project {project_id}: {str(e)}", exc_info=True)
+        
+        # Update project status on error
+        try:
+            project.status = 'editing_prompt'
+            project.save()
+        except Exception as save_error:
+            logger.error(f"Error updating project status: {str(save_error)}")
+        
+        return JsonResponse({
+            'error': f'Error starting video generation: {str(e)}'
+        }, status=500)
 
 
 @require_http_methods(["GET"])
 def api_veo_status(request, video_id):
-    """API endpoint: Check Veo video generation status"""
+    """API endpoint: Check Veo video generation status using Redis cache"""
     from bson import ObjectId
     from mongoengine import DoesNotExist
     
     try:
         video_gen = VideoGeneration.objects.get(id=ObjectId(video_id))
-    except (DoesNotExist, Exception):
+    except (DoesNotExist, Exception) as e:
+        logger.error(f"Video generation not found: {video_id}, error: {str(e)}")
         return JsonResponse({'error': 'Video generation not found'}, status=404)
     
-    # Get operation from cache
-    operation = _veo_operations_cache.get(str(video_id))
+    # Get operation data from Redis cache
+    cache_key = f'veo_operation:{video_id}'
+    operation_data = cache.get(cache_key)
     
-    if not operation:
+    if not operation_data:
+        logger.debug(f"No operation found in Redis cache for video {video_id}")
         return JsonResponse({
             'status': video_gen.status,
-            'message': 'No operation found. Video may not have started yet.'
+            'video_id': str(video_id),
+            'message': 'No operation found. Video may not have started yet or cache expired.'
         })
     
     try:
-        status_result = veo_service.check_video_status(operation)
+        # Queue async status check task
+        # For real-time status, we can also check directly
+        # But for better scalability, we use the task
+        task = check_video_status_task.delay(str(video_id))
         
-        # Update video generation status
-        video_gen.status = status_result.get('status', video_gen.status)
-        if status_result.get('video_url'):
-            video_gen.video_url = status_result['video_url']
-        if status_result.get('error'):
-            video_gen.error_message = status_result['error']
-            video_gen.status = 'failed'
-        video_gen.save()
+        # Also try to get current status from database
+        # The task will update the status in the background
+        response_data = {
+            'status': video_gen.status,
+            'video_id': str(video_id),
+            'operation_name': operation_data.get('operation_name'),
+            'task_id': task.id,
+            'message': 'Status check queued'
+        }
         
-        # Remove from cache if completed or failed
-        if status_result.get('status') in ['completed', 'failed', 'error']:
-            _veo_operations_cache.pop(video_id, None)
+        # If video is already completed, include video URL
+        if video_gen.status == 'completed' and video_gen.video_url:
+            response_data['video_url'] = video_gen.video_url
         
-        return JsonResponse(status_result)
+        # If video failed, include error message
+        if video_gen.status == 'failed' and video_gen.error_message:
+            response_data['error'] = video_gen.error_message
+        
+        return JsonResponse(response_data)
     
     except Exception as e:
-        return JsonResponse({'error': str(e), 'status': video_gen.status}, status=500)
+        logger.error(f"Error checking video status {video_id}: {str(e)}", exc_info=True)
+        return JsonResponse({
+            'error': str(e),
+            'status': video_gen.status,
+            'video_id': str(video_id)
+        }, status=500)
