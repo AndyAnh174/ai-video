@@ -1,0 +1,95 @@
+{% extends "app/base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h2 class="text-3xl font-bold mb-2">Step 1: Upload Your Data File</h2>
+        <p class="text-base-content/70">Upload a CSV or Excel file containing your data. We'll automatically detect the columns.</p>
+    </div>
+
+    <form id="upload-form" enctype="multipart/form-data" class="space-y-6">
+        {% csrf_token %}
+        
+        <!-- Project Name Input -->
+        <div class="form-control w-full">
+            <label class="label" for="project_name">
+                <span class="label-text font-semibold">Project Name</span>
+            </label>
+            <input type="text" id="project_name" name="project_name" 
+                   class="input input-bordered w-full" 
+                   placeholder="My Video Project" required>
+        </div>
+
+        <!-- File Upload Area -->
+        <div class="form-control w-full">
+            <label class="label">
+                <span class="label-text font-semibold">Data File</span>
+            </label>
+            <div class="card bg-base-200 border-2 border-dashed border-primary/30 hover:border-primary transition-colors cursor-pointer" id="upload-area">
+                <input type="file" id="data_file" name="data_file" accept=".csv,.xlsx,.xls" required class="hidden">
+                <div class="card-body items-center text-center py-12">
+                    <svg class="w-16 h-16 text-primary mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <p class="text-lg font-semibold mb-2">Click to upload or drag and drop</p>
+                    <p class="text-sm text-base-content/60">CSV or Excel files only</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload Progress -->
+        <div id="upload-progress" class="hidden">
+            <div class="alert alert-info">
+                <span class="loading loading-spinner loading-md"></span>
+                <span>Uploading...</span>
+            </div>
+            <progress id="progress-fill" class="progress progress-primary w-full mt-2" value="0" max="100"></progress>
+        </div>
+
+        <!-- File Preview -->
+        <div id="file-preview" class="hidden space-y-4">
+            <div class="divider">
+                <h3 class="text-xl font-bold">File Preview</h3>
+            </div>
+            
+            <!-- Columns List -->
+            <div>
+                <h4 class="font-semibold mb-3">Detected Columns:</h4>
+                <div id="columns-list" class="flex flex-wrap gap-2"></div>
+            </div>
+            
+            <!-- Data Preview Table -->
+            <div class="overflow-x-auto">
+                <div id="data-preview"></div>
+            </div>
+            
+            <div class="flex justify-end">
+                <button type="button" id="next-btn" class="btn btn-primary btn-lg">
+                    Next: Write Prompt
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error-message" class="alert alert-error hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span id="error-text"></span>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/file-upload.js' %}"></script>
+<script>
+    // Mark step 1 as active
+    document.getElementById('step1-indicator').classList.add('active');
+</script>
+{% endblock %}
+

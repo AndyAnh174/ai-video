@@ -1,0 +1,96 @@
+{% extends "app/base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <h2 class="text-3xl font-bold mb-2">Step 2: Write Your Prompt</h2>
+        <p class="text-base-content/70">Create a prompt template using the data fields below. Use {% templatetag openvariable %}field_name{% templatetag closevariable %} to insert data values.</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Available Fields Panel -->
+        <div class="lg:col-span-1">
+            <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                    <h3 class="card-title mb-4">Available Fields</h3>
+                    <div class="space-y-2">
+                        {% for field in fields %}
+                        <div class="flex items-center justify-between gap-2 p-2 bg-base-100 rounded-lg">
+                            <code class="text-sm font-mono text-primary">{% templatetag openvariable %}{{ field }}{% templatetag closevariable %}</code>
+                            <button class="btn btn-sm btn-outline btn-primary" onclick="insertField('{{ field|escapejs }}')">
+                                Insert
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prompt Editor Panel -->
+        <div class="lg:col-span-2">
+            <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="card-title">Prompt Template</h3>
+                        <button id="gemini-suggest-btn" class="btn btn-secondary">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                            </svg>
+                            Get AI Suggestion
+                        </button>
+                    </div>
+                    
+                    <textarea id="prompt-editor" 
+                              class="textarea textarea-bordered w-full h-64 font-mono text-sm" 
+                              placeholder="Write your prompt here... Use {% templatetag openvariable %}field{% templatetag closevariable %} to insert data values.">{{ prompt_template.template }}</textarea>
+                    
+                    <div class="card-actions justify-end mt-4">
+                        <button id="save-prompt-btn" class="btn btn-primary">
+                            Save Prompt
+                        </button>
+                        <button id="next-to-videos-btn" class="btn btn-success">
+                            Next: Generate Videos
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="gemini-loading" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div class="card bg-base-100 shadow-2xl">
+            <div class="card-body items-center text-center">
+                <span class="loading loading-spinner loading-lg text-primary"></span>
+                <p class="mt-4 text-lg">Getting AI suggestion from Gemini...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Message -->
+    <div id="error-message" class="alert alert-error hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span id="error-text"></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/prompt-editor.js' %}"></script>
+<script>
+    // Mark steps 1 and 2 as active (DaisyUI steps)
+    document.getElementById('step1-indicator').classList.add('step-primary');
+    document.getElementById('step2-indicator').classList.add('step-primary');
+    
+    const projectId = "{{ project.id }}";
+    const fields = {{ fields_json|safe|default:"[]" }};
+</script>
+{% endblock %}
+

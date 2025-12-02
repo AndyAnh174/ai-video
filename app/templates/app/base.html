@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI Video Generator{% endblock %}</title>
+    {% load static %}
+    
+    <!-- DaisyUI and Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body class="min-h-screen bg-base-200">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-5xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent mb-2">
+                AI Video Generator
+            </h1>
+            <p class="text-lg text-base-content/70">
+                Create videos from your data using Gemini & Veo
+            </p>
+        </div>
+
+        <!-- Progress Steps -->
+        <ul class="steps steps-horizontal w-full mb-8">
+            <li class="step step-primary" id="step1-indicator">
+                <div class="step-content">
+                    <div class="font-semibold">Upload File</div>
+                </div>
+            </li>
+            <li class="step" id="step2-indicator">
+                <div class="step-content">
+                    <div class="font-semibold">Write Prompt</div>
+                </div>
+            </li>
+            <li class="step" id="step3-indicator">
+                <div class="step-content">
+                    <div class="font-semibold">Generate Videos</div>
+                </div>
+            </li>
+        </ul>
+
+        <!-- Main Content -->
+        <main class="bg-base-100 rounded-lg shadow-xl p-6 md:p-8">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="{% static 'js/wizard.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+
